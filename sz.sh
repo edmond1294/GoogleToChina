@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# Xray Google 送中模式管理脚本 (全平台/Alpine LXC 兼容版)
+# Xray Google 送中模式管理脚本 (全平台/Alpine LXC 防卡死版)
 # 快捷指令: sz
 # =========================================================
 
@@ -64,16 +64,25 @@ setup_shortcut() {
     chmod +x /usr/local/bin/sz
 }
 
+# 预防内存不足 (自动检测 LXC/Docker 容器并安全处理)
 check_swap() {
+    # 如果检测到在 LXC / Docker 容器内，直接跳过 Swap 建立
+    if [ -f /proc/1/environ ] && grep -qa -e "container=lxc" -e "container=docker" /proc/1/environ; then
+        return 0
+    fi
+    if [ -d /dev/pve ] || grep -q "lxc" /proc/1/cgroup 2>/dev/null; then
+        return 0
+    fi
+
     MEM_FREE=$(free -m | awk '/Mem:/ {print $4+$6}')
     SWAP_TOTAL=$(free -m | awk '/Swap:/ {print $2}')
 
     if [ "$MEM_FREE" -lt 300 ] && [ "$SWAP_TOTAL" -eq 0 ]; then
-        echo -e "${YELLOW}检测到内存不足 (${MEM_FREE}MB) 且未配置 Swap，正在自动建立 1GB 临时 Swap...${NC}"
+        echo -e "${YELLOW}检测到 KVM 虚拟机内存不足且未配置 Swap，正在建立 1GB 临时 Swap...${NC}"
         dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none 2>/dev/null || true
         chmod 600 /swapfile 2>/dev/null || true
         mkswap /swapfile >/dev/null 2>&1 || true
-        swapon /swapfile 2>/dev/null || true
+        swapon /swapfile >/dev/null 2>&1 || true
     fi
 }
 
@@ -110,9 +119,8 @@ done
 EOF
     chmod +x "$PING_SCRIPT"
 
-    # 判断系统服务管理器：OpenRC (Alpine) vs Systemd (Debian/Ubuntu/CentOS)
+    # 判断服务管理器：OpenRC (Alpine) vs Systemd
     if command -v rc-service >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
-        # Alpine OpenRC 模式
         cat << 'EOF' > "$SERVICE_FILE_OPENRC"
 #!/sbin/openrc-run
 
@@ -129,7 +137,6 @@ EOF
         chmod +x "$SERVICE_FILE_OPENRC"
         rc-update add google-cn-ping default >/dev/null 2>&1 || true
     else
-        # Systemd 模式
         cat << EOF > "$SERVICE_FILE_SYSTEMD"
 [Unit]
 Description=Google CN Location Keep-Alive Service (High Intensity)
@@ -163,7 +170,6 @@ install_xray() {
         echo -e "${YELLOW}=== 检测到缺少依赖，开始安装环境 ===${NC}"
         check_swap
         
-        # 兼容 Alpine (apk), Debian/Ubuntu (apt-get), CentOS (yum/dnf)
         if command -v apk >/dev/null 2>&1; then
             apk update -q
             apk add -q curl jq python3 bash
