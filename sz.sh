@@ -39,7 +39,7 @@ show_banner() {
 
 find_config() {
     XRAY_CONF=""
-    for path in "/usr/local/etc/xray/config.json" "/etc/xray/config.json" "/etc/v2ray/config.json" "/usr/local/etc/v2ray/config.json"; do
+    for path in "/etc/xray/config.json" "/usr/local/etc/xray/config.json" "/etc/v2ray/config.json" "/usr/local/etc/v2ray/config.json"; do
         if [ -f "$path" ]; then
             XRAY_CONF="$path"
             break
@@ -152,11 +152,51 @@ EOF
     fi
 }
 
+install_xray_alpine_binary() {
+    echo -e "${YELLOW}正在从 GitHub 下载 Xray 官方编译二进制文件...${NC}"
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64) XARCH="64" ;;
+        aarch64|arm64) XARCH="arm64-v8a" ;;
+        armv7l) XARCH="arm32-v7a" ;;
+        *) XARCH="64" ;;
+    esac
+
+    TMP_DIR=$(mktemp -d)
+    curl -sSL -o "$TMP_DIR/xray.zip" "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-${XARCH}.zip"
+    unzip -q -o "$TMP_DIR/xray.zip" -d "$TMP_DIR"
+    
+    mkdir -p /usr/local/bin /usr/local/share/xray /etc/xray
+    cp -f "$TMP_DIR/xray" /usr/local/bin/xray
+    chmod +x /usr/local/bin/xray
+    [ -f "$TMP_DIR/geoip.dat" ] && cp -f "$TMP_DIR/geoip.dat" /usr/local/share/xray/
+    [ -f "$TMP_DIR/geosite.dat" ] && cp -f "$TMP_DIR/geosite.dat" /usr/local/share/xray/
+    rm -rf "$TMP_DIR"
+
+    # 创建 OpenRC 服务
+    cat << 'EOF' > /etc/init.d/xray
+#!/sbin/openrc-run
+
+name="xray"
+description="Xray Service"
+command="/usr/local/bin/xray"
+command_args="run -c /etc/xray/config.json"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+    need net
+}
+EOF
+    chmod +x /etc/init.d/xray
+    rc-update add xray default >/dev/null 2>&1 || true
+}
+
 install_xray() {
     setup_shortcut
 
     NEED_INSTALL=0
-    for pkg in curl jq python3 bash; do
+    for pkg in curl jq python3 bash unzip; do
         if ! command -v "$pkg" >/dev/null 2>&1; then
             NEED_INSTALL=1
             break
@@ -169,27 +209,32 @@ install_xray() {
         
         if command -v apk >/dev/null 2>&1; then
             apk update -q
-            apk add -q curl jq python3 bash
+            apk add -q curl jq python3 bash unzip
         elif command -v apt-get >/dev/null 2>&1; then
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
-            apt-get install -y -qq curl jq python3 bash
+            apt-get install -y -qq curl jq python3 bash unzip
         elif command -v yum >/dev/null 2>&1; then
-            yum install -y -q curl jq python3 bash
+            yum install -y -q curl jq python3 bash unzip
         fi
     fi
 
-    # 专门针对 Alpine Linux 的 Xray 安装逻辑
+    # Alpine Linux 专门安装逻辑
     if command -v apk >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
         if ! command -v xray >/dev/null 2>&1; then
-            echo -e "${YELLOW}检测到 Alpine 环境，通过 apk 安装 Xray...${NC}"
-            apk add -q xray || {
-                # 如果社区源未开启则开启 community 源
-                sed -i 's/^#\(.*community\)/\1/' /etc/apk/repositories
-                apk update -q
-                apk add -q xray
-            }
-            rc-update add xray default >/dev/null 2>&1 || true
+            echo -e "${YELLOW}检测到 Alpine 环境，开启 community/testing 源并尝试安装 Xray...${NC}"
+            
+            # 开启 community 和 testing 源
+            ALPINE_VER=$(cat /etc/alpine-release | cut -d'.' -f1,2)
+            echo "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VER}/community" >> /etc/apk/repositories
+            echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
+            apk update -q
+
+            if ! apk add -q xray 2>/dev/null; then
+                install_xray_alpine_binary
+            else
+                rc-update add xray default >/dev/null 2>&1 || true
+            fi
         fi
     else
         # 非 Alpine 系统的 Linux，执行官方 install-release 脚本
@@ -201,6 +246,10 @@ install_xray() {
     fi
 
     find_config
+    if [ -z "$XRAY_CONF" ]; then
+        XRAY_CONF="/etc/xray/config.json"
+    fi
+
     if [ ! -s "$XRAY_CONF" ]; then
         mkdir -p "$(dirname "$XRAY_CONF")"
         cat << 'CONF_EOF' > "$XRAY_CONF"
@@ -217,7 +266,7 @@ install_xray() {
   ]
 }
 CONF_EOF
-        echo -e "${GREEN}已创建基础 Xray 配置文件。${NC}"
+        echo -e "${GREEN}已创建基础 Xray 配置文件 ($XRAY_CONF)。${NC}"
     fi
 
     create_ping_service
@@ -243,6 +292,10 @@ restart_service() {
 enable_cn_dns() {
     find_config
     if [ -z "$XRAY_CONF" ]; then
+        XRAY_CONF="/etc/xray/config.json"
+    fi
+
+    if [ ! -f "$XRAY_CONF" ]; then
         echo -e "${RED}错误：未找到 Xray 配置文件，请先执行安装！${NC}"
         return
     fi
@@ -293,6 +346,10 @@ with open(conf_path, 'w') as f:
 disable_cn_dns() {
     find_config
     if [ -z "$XRAY_CONF" ]; then
+        XRAY_CONF="/etc/xray/config.json"
+    fi
+
+    if [ ! -f "$XRAY_CONF" ]; then
         echo -e "${RED}错误：未找到 Xray 配置文件！${NC}"
         return
     fi
