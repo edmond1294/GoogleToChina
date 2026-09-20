@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# Xray Google 送中模式管理脚本 (高强度 + 防 OOM 优化版)
+# Xray Google 送中模式管理脚本 (高强度 + 防 OOM + 管道修复版)
 # 快捷指令: sz
 # =========================================================
 
@@ -24,15 +24,24 @@ find_config() {
     done
 }
 
+# 修复管道执行下的 sz 快捷键建立
 setup_shortcut() {
-    SCRIPT_PATH=$(readlink -f "$0")
-    if [ ! -f /usr/local/bin/sz ] || [ "$(readlink -f /usr/local/bin/sz)" != "$SCRIPT_PATH" ]; then
-        ln -sf "$SCRIPT_PATH" /usr/local/bin/sz
-        chmod +x /usr/local/bin/sz
+    LOCAL_SCRIPT="/usr/local/bin/google_cn_manager.sh"
+
+    if [ ! -f "$LOCAL_SCRIPT" ] || [ "$(readlink -f "$0")" != "$LOCAL_SCRIPT" ]; then
+        if [ -f "$0" ] && [ "$0" != "/dev/stdin" ] && [[ "$0" != /dev/fd/* ]]; then
+            cp -f "$(readlink -f "$0")" "$LOCAL_SCRIPT"
+        else
+            echo -e "${YELLOW}正在将脚本持久化安装至 $LOCAL_SCRIPT ...${NC}"
+            curl -sSL "https://raw.githubusercontent.com/edmond1294/GoogleToChina/main/sz.sh" -o "$LOCAL_SCRIPT"
+        fi
+        chmod +x "$LOCAL_SCRIPT"
     fi
+
+    ln -sf "$LOCAL_SCRIPT" /usr/local/bin/sz
+    chmod +x /usr/local/bin/sz
 }
 
-# 预防小鸡内存不足 (OOM) 的 Swap 优化
 check_swap() {
     MEM_FREE=$(free -m | awk '/Mem:/ {print $4+$6}')
     SWAP_TOTAL=$(free -m | awk '/Swap:/ {print $2}')
@@ -47,7 +56,6 @@ check_swap() {
     fi
 }
 
-# 创建高强度多元化发包脚本
 create_ping_service() {
     cat << 'EOF' > "$PING_SCRIPT"
 #!/bin/bash
@@ -99,11 +107,9 @@ EOF
     systemctl daemon-reload
 }
 
-# 智能化依赖安装（如果已安装则跳过）
 install_xray() {
     setup_shortcut
 
-    # 检查基础依赖，缺什么才装什么
     NEED_INSTALL=0
     for pkg in curl jq python3; do
         if ! command -v "$pkg" >/dev/null 2>&1; then
