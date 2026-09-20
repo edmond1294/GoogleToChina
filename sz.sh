@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# Xray Google 送中模式管理脚本 (高强度多维度发包)
+# Xray Google 送中模式管理脚本 (高强度 + 防 OOM 优化版)
 # 快捷指令: sz
 # =========================================================
 
@@ -32,12 +32,25 @@ setup_shortcut() {
     fi
 }
 
+# 预防小鸡内存不足 (OOM) 的 Swap 优化
+check_swap() {
+    MEM_FREE=$(free -m | awk '/Mem:/ {print $4+$6}')
+    SWAP_TOTAL=$(free -m | awk '/Swap:/ {print $2}')
+
+    if [ "$MEM_FREE" -lt 300 ] && [ "$SWAP_TOTAL" -eq 0 ]; then
+        echo -e "${YELLOW}检测到内存不足 (${MEM_FREE}MB) 且未配置 Swap，正在自动建立 1GB 临时 Swap...${NC}"
+        dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+        chmod 600 /swapfile
+        mkswap /swapfile >/dev/null
+        swapon /swapfile
+        echo -e "${GREEN}1GB 临时 Swap 挂载成功！${NC}"
+    fi
+}
+
 # 创建高强度多元化发包脚本
 create_ping_service() {
     cat << 'EOF' > "$PING_SCRIPT"
 #!/bin/bash
-# 高强度送中维持脚本：模拟移动设备特征，多节点随机间隔发包
-
 UA_MOBILE="Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/UD1A.230803.041) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.119 Mobile Safari/537.36"
 
 endpoints=(
@@ -51,11 +64,9 @@ endpoints=(
 )
 
 while true; do
-    # 1. 触发 AliDNS DoH 解析 query（附带 ECS 参数模拟中国电信/联通源）
     curl -s "https://dns.alidns.com/dns-query?name=www.google.com&type=A&edns_client_subnet=114.240.0.0/16" >/dev/null 2>&1 || true
     curl -s "https://dns.alidns.com/dns-query?name=location.services.mozilla.com&type=A&edns_client_subnet=202.108.22.0/16" >/dev/null 2>&1 || true
 
-    # 2. 模拟移动终端连续向 Google 各 API 节点发包
     for url in "${endpoints[@]}"; do
         curl -s -A "$UA_MOBILE" \
              -H "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8" \
@@ -64,7 +75,6 @@ while true; do
              "$url" >/dev/null 2>&1 || true
     done
 
-    # 3. 随机休眠 120 ~ 300 秒（模拟真实行为，防止被识别为固定 Cron）
     SLEEP_TIME=$((120 + RANDOM % 180))
     sleep $SLEEP_TIME
 done
@@ -89,14 +99,29 @@ EOF
     systemctl daemon-reload
 }
 
+# 智能化依赖安装（如果已安装则跳过）
 install_xray() {
-    echo -e "${YELLOW}=== 开始安装系统依赖与 Xray ===${NC}"
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get update -y
-        apt-get install -y curl jq python3
-    elif command -v yum >/dev/null 2>&1; then
-        yum update -y
-        yum install -y curl jq python3
+    setup_shortcut
+
+    # 检查基础依赖，缺什么才装什么
+    NEED_INSTALL=0
+    for pkg in curl jq python3; do
+        if ! command -v "$pkg" >/dev/null 2>&1; then
+            NEED_INSTALL=1
+            break
+        fi
+    done
+
+    if [ "$NEED_INSTALL" -eq 1 ]; then
+        echo -e "${YELLOW}=== 检测到缺少依赖，开始安装环境 ===${NC}"
+        check_swap
+        export DEBIAN_FRONTEND=noninteractive
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq
+            apt-get install -y -qq curl jq python3
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y -q curl jq python3
+        fi
     fi
 
     find_config
@@ -104,8 +129,6 @@ install_xray() {
         echo -e "${YELLOW}未检测到 Xray，开始执行官方一键安装脚本...${NC}"
         bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)
         find_config
-    else
-        echo -e "${GREEN}检测到 Xray 配置文件：$XRAY_CONF${NC}"
     fi
 
     if [ ! -s "$XRAY_CONF" ]; then
@@ -127,7 +150,6 @@ CONF_EOF
         echo -e "${GREEN}已创建基础 Xray 配置文件。${NC}"
     fi
 
-    setup_shortcut
     create_ping_service
 }
 
@@ -147,7 +169,6 @@ conf_path = '$XRAY_CONF'
 with open(conf_path, 'r') as f:
     data = json.load(f)
 
-# 扩展 Google 核心网域与底层 CDN 网域
 data['dns'] = {
     'servers': [
         {
@@ -181,8 +202,7 @@ with open(conf_path, 'w') as f:
     systemctl restart google-cn-ping.service >/dev/null 2>&1 || true
 
     echo -e "${GREEN}✅ 已成功开启『高强度送中模式』！${NC}"
-    echo -e "${GREEN}✅ 已注入全套 Google 核心与底层 CDN 网域路由规则。${NC}"
-    echo -e "${GREEN}✅ 多维度模拟发包服务已启动（含 Android User-Agent、ECS 伪装及随机延迟）。${NC}"
+    echo -e "${GREEN}✅ 多维度模拟发包服务已启动。${NC}"
 }
 
 disable_cn_dns() {
@@ -217,7 +237,6 @@ with open(conf_path, 'w') as f:
     systemctl disable google-cn-ping.service >/dev/null 2>&1 || true
 
     echo -e "${GREEN}✅ 已成功关闭『送中模式』，恢复默认国际解析！${NC}"
-    echo -e "${YELLOW}（高强度发包维持服务已停止）${NC}"
 }
 
 show_menu() {
