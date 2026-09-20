@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# Xray Google 送中模式管理脚本 (高强度 + 防 OOM + 管道修复版)
+# Xray Google 送中模式管理脚本 (高强度 + Banner 增强版)
 # 快捷指令: sz
 # =========================================================
 
@@ -9,10 +9,35 @@ set -e
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 PING_SCRIPT="/usr/local/bin/google_cn_ping.sh"
 SERVICE_FILE="/etc/systemd/system/google-cn-ping.service"
+
+# 打印开场艺术字 (中国国旗 & Google Logo)
+show_banner() {
+    clear
+    # 中国国旗 ASCII Art (五星红旗)
+    echo -e "${RED}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}║ ${YELLOW}★${RED}                                                       ║${NC}"
+    echo -e "${RED}║    ${YELLOW}*${RED}                                                    ║${NC}"
+    echo -e "${RED}║   ${YELLOW}*${RED}                                                     ║${NC}"
+    echo -e "${RED}║   ${YELLOW}*${RED}                                                     ║${NC}"
+    echo -e "${RED}║    ${YELLOW}*${RED}                                                    ║${NC}"
+    echo -e "${RED}║                                                       ║${NC}"
+    echo -e "${RED}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    # 彩色 Google Logo ASCII Art
+    echo -e "   ${BLUE}██████${NC}   ${RED}██████${NC}   ${YELLOW}██████${NC}   ${BLUE}██████${NC}   ${GREEN}██${NC}      ${RED}██████${NC}"
+    echo -e "  ${BLUE}██${NC}        ${RED}██  ██${NC}  ${YELLOW}██  ██${NC}  ${BLUE}██${NC}       ${GREEN}██${NC}      ${RED}██${NC}"
+    echo -e "  ${BLUE}██   ███${NC}  ${RED}██  ██${NC}  ${YELLOW}██  ██${NC}  ${BLUE}██   ███${NC}  ${GREEN}██${NC}      ${RED}█████${NC}"
+    echo -e "  ${BLUE}██    ██${NC}  ${RED}██  ██${NC}  ${YELLOW}██  ██${NC}  ${BLUE}██    ██${NC}  ${GREEN}██${NC}      ${RED}██${NC}"
+    echo -e "   ${BLUE}██████${NC}   ${RED}██████${NC}   ${YELLOW}██████${NC}   ${BLUE}██████${NC}   ${GREEN}███████${NC}  ${RED}██████${NC}"
+    echo ""
+}
 
 find_config() {
     XRAY_CONF=""
@@ -24,7 +49,6 @@ find_config() {
     done
 }
 
-# 修复管道执行下的 sz 快捷键建立
 setup_shortcut() {
     LOCAL_SCRIPT="/usr/local/bin/google_cn_manager.sh"
 
@@ -246,6 +270,7 @@ with open(conf_path, 'w') as f:
 }
 
 show_menu() {
+    show_banner
     echo "================================================="
     echo "       Xray Google 送中模式管理脚本 (高强度)     "
     echo "================================================="
