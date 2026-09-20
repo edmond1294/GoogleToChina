@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# Xray Google 送中模式管理脚本 (全平台/Alpine LXC 完美支持版)
+# Google 送中模式管理脚本 (全平台/Alpine LXC 完美支持版)
 # 快捷指令: sz
 # =========================================================
 
@@ -22,7 +22,7 @@ SERVICE_FILE_OPENRC="/etc/init.d/google-cn-ping"
 show_banner() {
     clear
     echo -e "${RED}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║${YELLOW}★${RED}███${YELLOW}*${RED}█████████████████████████████████████████████████║${NC}"
+    echo -e "${RED}║${YELLOW}★${RED}███${YELLOW}*${RED}██████████████████████████████████████████████████║${NC}"
     echo -e "${RED}║████${YELLOW}*${RED}██████████████████████████████████████████████████║${NC}"
     echo -e "${RED}║████${YELLOW}*${RED}██████████████████████████████████████████████████║${NC}"
     echo -e "${RED}║███${YELLOW}*${RED}███████████████████████████████████████████████████║${NC}"
@@ -76,7 +76,7 @@ check_swap() {
     SWAP_TOTAL=$(free -m | awk '/Swap:/ {print $2}')
 
     if [ "$MEM_FREE" -lt 300 ] && [ "$SWAP_TOTAL" -eq 0 ]; then
-        echo -e "${YELLOW}检测到 KVM 虚拟机内存不足且未配置 Swap，正在建立 1GB 临时 Swap...${NC}"
+        echo -e "${YELLOW}检测到虚拟机内存不足且未配置 Swap，正在建立 1GB 临时 Swap...${NC}"
         dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none 2>/dev/null || true
         chmod 600 /swapfile 2>/dev/null || true
         mkswap /swapfile >/dev/null 2>&1 || true
@@ -153,7 +153,7 @@ EOF
 }
 
 install_xray_alpine_binary() {
-    echo -e "${YELLOW}正在从 GitHub 下载 Xray 官方编译二进制文件...${NC}"
+    echo -e "${YELLOW}正在下载核心服务二进制文件...${NC}"
     ARCH=$(uname -m)
     case "$ARCH" in
         x86_64) XARCH="64" ;;
@@ -177,7 +177,7 @@ install_xray_alpine_binary() {
 #!/sbin/openrc-run
 
 name="xray"
-description="Xray Service"
+description="Proxy Service"
 command="/usr/local/bin/xray"
 command_args="run -c /etc/xray/config.json"
 command_background=true
@@ -220,7 +220,7 @@ install_xray() {
 
     if command -v apk >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
         if ! command -v xray >/dev/null 2>&1; then
-            echo -e "${YELLOW}检测到 Alpine 环境，开启 community/testing 源并尝试安装 Xray...${NC}"
+            echo -e "${YELLOW}检测到 Alpine 环境，开启 community/testing 源...${NC}"
             
             ALPINE_VER=$(cat /etc/alpine-release | cut -d'.' -f1,2)
             echo "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VER}/community" >> /etc/apk/repositories
@@ -236,7 +236,7 @@ install_xray() {
     else
         find_config
         if [ -z "$XRAY_CONF" ]; then
-            echo -e "${YELLOW}未检测到 Xray，开始执行官方一键安装脚本...${NC}"
+            echo -e "${YELLOW}未检测到核心服务，开始安装...${NC}"
             bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)
         fi
     fi
@@ -262,7 +262,7 @@ install_xray() {
   ]
 }
 CONF_EOF
-        echo -e "${GREEN}已创建基础 Xray 配置文件 ($XRAY_CONF)。${NC}"
+        echo -e "${GREEN}已创建基础配置文件 ($XRAY_CONF)。${NC}"
     fi
 
     create_ping_service
@@ -292,7 +292,7 @@ enable_cn_dns() {
     fi
 
     if [ ! -f "$XRAY_CONF" ]; then
-        echo -e "${RED}错误：未找到 Xray 配置文件，请先执行安装！${NC}"
+        echo -e "${RED}错误：未找到配置文件，请先执行安装！${NC}"
         return
     fi
 
@@ -346,7 +346,7 @@ disable_cn_dns() {
     fi
 
     if [ ! -f "$XRAY_CONF" ]; then
-        echo -e "${RED}错误：未找到 Xray 配置文件！${NC}"
+        echo -e "${RED}错误：未找到配置文件！${NC}"
         return
     fi
 
@@ -375,14 +375,46 @@ with open(conf_path, 'w') as f:
     echo -e "${GREEN}✅ 已成功关闭『送中模式』，恢复默认国际解析！${NC}"
 }
 
+get_status() {
+    find_config
+    
+    # 1. 检查核心服务运行状态
+    CORE_STATUS="${RED}未运行${NC}"
+    if pgrep -x "xray" >/dev/null 2>&1 || pgrep -x "v2ray" >/dev/null 2>&1; then
+        CORE_STATUS="${GREEN}运行中${NC}"
+    fi
+
+    # 2. 检查 Keep-Alive 保活服务运行状态
+    PING_STATUS="${RED}未运行${NC}"
+    if pgrep -f "google_cn_ping.sh" >/dev/null 2>&1; then
+        PING_STATUS="${GREEN}运行中${NC}"
+    fi
+
+    # 3. 检查送中模式 (DNS 解析状态)
+    MODE_STATUS="${YELLOW}未配置${NC}"
+    if [ -n "$XRAY_CONF" ] && [ -f "$XRAY_CONF" ]; then
+        if grep -q "dns.alidns.com" "$XRAY_CONF" 2>/dev/null; then
+            MODE_STATUS="${GREEN}已开启 (高强度送中模式)${NC}"
+        else
+            MODE_STATUS="${BLUE}已关闭 (默认国际模式)${NC}"
+        fi
+    fi
+
+    echo -e " 核心服务状态: $CORE_STATUS"
+    echo -e " 保活服务状态: $PING_STATUS"
+    echo -e " 当前运行模式: $MODE_STATUS"
+}
+
 show_menu() {
     show_banner
     echo "================================================="
-    echo "       Xray Google 送中模式管理脚本 (全平台版)   "
+    echo "       Google 送中模式管理脚本 (全平台版)        "
+    echo "================================================="
+    get_status
     echo "================================================="
     echo -e " 1. ${GREEN}开启高强度送中模式 (多维发包 + 动态间隔)${NC}"
     echo -e " 2. ${RED}关闭送中模式${NC}"
-    echo -e " 3. ${YELLOW}一键安装/修复 Xray 与依赖环境${NC}"
+    echo -e " 3. ${YELLOW}一键安装/修复核心环境与依赖${NC}"
     echo " 0. 退出脚本"
     echo "================================================="
     echo -e " 💡 提示：后续可在命令行直接输入 ${GREEN}sz${NC} 呼出本菜单"
