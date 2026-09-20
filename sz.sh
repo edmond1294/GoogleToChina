@@ -26,22 +26,22 @@ show_banner() {
     echo -e "${RED}║████${YELLOW}*${RED}██████████████████████████████████████████████████║${NC}"
     echo -e "${RED}║████${YELLOW}*${RED}██████████████████████████████████████████████████║${NC}"
     echo -e "${RED}║███${YELLOW}*${RED}███████████████████████████████████████████████████║${NC}"
-    echo -e "${RED}║███████████████████████████████████████████████████████║${NC}"
+    echo -e "${RED}║██████████████████████████████████████████████████████║${NC}"
     echo -e "${RED}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "   ${BLUE}██████${NC}   ${RED}██████${NC}   ${YELLOW}██████${NC}   ${BLUE}██████${NC}   ${GREEN}██${NC}      ${RED}██████${NC}"
-    echo -e "  ${BLUE}██${NC}        ${RED}██  ██${NC}  ${YELLOW}██  ██${NC}  ${BLUE}██${NC}       ${GREEN}██${NC}      ${RED}██${NC}"
-    echo -e "  ${BLUE}██   ███${NC}  ${RED}██  ██${NC}  ${YELLOW}██  ██${NC}  ${BLUE}██   ███${NC}  ${GREEN}██${NC}      ${RED}█████${NC}"
-    echo -e "  ${BLUE}██    ██${NC}  ${RED}██  ██${NC}  ${YELLOW}██  ██${NC}  ${BLUE}██    ██${NC}  ${GREEN}██${NC}      ${RED}██${NC}"
-    echo -e "   ${BLUE}██████${NC}   ${RED}██████${NC}   ${YELLOW}██████${NC}   ${BLUE}██████${NC}   ${GREEN}███████${NC}  ${RED}██████${NC}"
+    echo -e "  ${BLUE}██${NC}        ${RED}██  ██${NC}   ${YELLOW}██  ██${NC}  ${BLUE}██${NC}        ${GREEN}██${NC}      ${RED}██${NC}"
+    echo -e "  ${BLUE}██   ███${NC}  ${RED}██  ██${NC}   ${YELLOW}██  ██${NC}  ${BLUE}██   ███${NC}  ${GREEN}██${NC}      ${RED}█████${NC}"
+    echo -e "  ${BLUE}██    ██${NC}  ${RED}██  ██${NC}   ${YELLOW}██  ██${NC}  ${BLUE}██    ██${NC}  ${GREEN}██${NC}      ${RED}██${NC}"
+    echo -e "   ${BLUE}██████${NC}   ${RED}██████${NC}   ${YELLOW}██████${NC}   ${BLUE}██████${NC}   ${GREEN}███████${NC} ${RED}██████${NC}"
     echo ""
 }
 
 find_config() {
-    XRAY_CONF=""
+    CONF_PATH=""
     for path in "/etc/xray/config.json" "/usr/local/etc/xray/config.json" "/etc/v2ray/config.json" "/usr/local/etc/v2ray/config.json"; do
         if [ -f "$path" ]; then
-            XRAY_CONF="$path"
+            CONF_PATH="$path"
             break
         fi
     done
@@ -76,7 +76,7 @@ check_swap() {
     SWAP_TOTAL=$(free -m | awk '/Swap:/ {print $2}')
 
     if [ "$MEM_FREE" -lt 300 ] && [ "$SWAP_TOTAL" -eq 0 ]; then
-        echo -e "${YELLOW}检测到虚拟机内存不足且未配置 Swap，正在建立 1GB 临时 Swap...${NC}"
+        echo -e "${YELLOW}检测到 KVM 虚拟机内存不足且未配置 Swap，正在建立 1GB 临时 Swap...${NC}"
         dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none 2>/dev/null || true
         chmod 600 /swapfile 2>/dev/null || true
         mkswap /swapfile >/dev/null 2>&1 || true
@@ -152,8 +152,8 @@ EOF
     fi
 }
 
-install_xray_alpine_binary() {
-    echo -e "${YELLOW}正在下载核心服务二进制文件...${NC}"
+install_core_alpine_binary() {
+    echo -e "${YELLOW}正在下载核心程序二进制文件...${NC}"
     ARCH=$(uname -m)
     case "$ARCH" in
         x86_64) XARCH="64" ;;
@@ -177,7 +177,7 @@ install_xray_alpine_binary() {
 #!/sbin/openrc-run
 
 name="xray"
-description="Proxy Service"
+description="Network Service"
 command="/usr/local/bin/xray"
 command_args="run -c /etc/xray/config.json"
 command_background=true
@@ -191,7 +191,7 @@ EOF
     rc-update add xray default >/dev/null 2>&1 || true
 }
 
-install_xray() {
+install_environment() {
     setup_shortcut
 
     NEED_INSTALL=0
@@ -220,7 +220,7 @@ install_xray() {
 
     if command -v apk >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
         if ! command -v xray >/dev/null 2>&1; then
-            echo -e "${YELLOW}检测到 Alpine 环境，开启 community/testing 源...${NC}"
+            echo -e "${YELLOW}检测到 Alpine 环境，配置源并安装核心...${NC}"
             
             ALPINE_VER=$(cat /etc/alpine-release | cut -d'.' -f1,2)
             echo "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VER}/community" >> /etc/apk/repositories
@@ -228,27 +228,27 @@ install_xray() {
             apk update -q
 
             if ! apk add -q xray 2>/dev/null; then
-                install_xray_alpine_binary
+                install_core_alpine_binary
             else
                 rc-update add xray default >/dev/null 2>&1 || true
             fi
         fi
     else
         find_config
-        if [ -z "$XRAY_CONF" ]; then
-            echo -e "${YELLOW}未检测到核心服务，开始安装...${NC}"
+        if [ -z "$CONF_PATH" ]; then
+            echo -e "${YELLOW}未检测到代理服务，开始一键安装...${NC}"
             bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)
         fi
     fi
 
     find_config
-    if [ -z "$XRAY_CONF" ]; then
-        XRAY_CONF="/etc/xray/config.json"
+    if [ -z "$CONF_PATH" ]; then
+        CONF_PATH="/etc/xray/config.json"
     fi
 
-    if [ ! -s "$XRAY_CONF" ]; then
-        mkdir -p "$(dirname "$XRAY_CONF")"
-        cat << 'CONF_EOF' > "$XRAY_CONF"
+    if [ ! -s "$CONF_PATH" ]; then
+        mkdir -p "$(dirname "$CONF_PATH")"
+        cat << 'CONF_EOF' > "$CONF_PATH"
 {
   "log": {
     "loglevel": "warning"
@@ -262,7 +262,7 @@ install_xray() {
   ]
 }
 CONF_EOF
-        echo -e "${GREEN}已创建基础配置文件 ($XRAY_CONF)。${NC}"
+        echo -e "${GREEN}已创建基础代理配置文件 ($CONF_PATH)。${NC}"
     fi
 
     create_ping_service
@@ -287,21 +287,21 @@ restart_service() {
 
 enable_cn_dns() {
     find_config
-    if [ -z "$XRAY_CONF" ]; then
-        XRAY_CONF="/etc/xray/config.json"
+    if [ -z "$CONF_PATH" ]; then
+        CONF_PATH="/etc/xray/config.json"
     fi
 
-    if [ ! -f "$XRAY_CONF" ]; then
+    if [ ! -f "$CONF_PATH" ]; then
         echo -e "${RED}错误：未找到配置文件，请先执行安装！${NC}"
         return
     fi
 
-    cp "$XRAY_CONF" "${XRAY_CONF}.bak"
+    cp "$CONF_PATH" "${CONF_PATH}.bak"
 
     python3 -c "
 import json
 
-conf_path = '$XRAY_CONF'
+conf_path = '$CONF_PATH'
 with open(conf_path, 'r') as f:
     data = json.load(f)
 
@@ -341,21 +341,21 @@ with open(conf_path, 'w') as f:
 
 disable_cn_dns() {
     find_config
-    if [ -z "$XRAY_CONF" ]; then
-        XRAY_CONF="/etc/xray/config.json"
+    if [ -z "$CONF_PATH" ]; then
+        CONF_PATH="/etc/xray/config.json"
     fi
 
-    if [ ! -f "$XRAY_CONF" ]; then
+    if [ ! -f "$CONF_PATH" ]; then
         echo -e "${RED}错误：未找到配置文件！${NC}"
         return
     fi
 
-    cp "$XRAY_CONF" "${XRAY_CONF}.bak"
+    cp "$CONF_PATH" "${CONF_PATH}.bak"
 
     python3 -c "
 import json
 
-conf_path = '$XRAY_CONF'
+conf_path = '$CONF_PATH'
 with open(conf_path, 'r') as f:
     data = json.load(f)
 
@@ -375,46 +375,50 @@ with open(conf_path, 'w') as f:
     echo -e "${GREEN}✅ 已成功关闭『送中模式』，恢复默认国际解析！${NC}"
 }
 
-get_status() {
-    find_config
-    
-    # 1. 检查核心服务运行状态
-    CORE_STATUS="${RED}未运行${NC}"
-    if pgrep -x "xray" >/dev/null 2>&1 || pgrep -x "v2ray" >/dev/null 2>&1; then
-        CORE_STATUS="${GREEN}运行中${NC}"
-    fi
-
-    # 2. 检查 Keep-Alive 保活服务运行状态
-    PING_STATUS="${RED}未运行${NC}"
+check_status() {
+    # 1. 检查送中 Ping 服务状态
     if pgrep -f "google_cn_ping.sh" >/dev/null 2>&1; then
-        PING_STATUS="${GREEN}运行中${NC}"
+        PING_PID=$(pgrep -f "google_cn_ping.sh" | head -n1)
+        PING_STATUS="${GREEN}运行中 (PID: ${PING_PID})${NC}"
+    else
+        PING_STATUS="${RED}未运行${NC}"
     fi
 
-    # 3. 检查送中模式 (DNS 解析状态)
-    MODE_STATUS="${YELLOW}未配置${NC}"
-    if [ -n "$XRAY_CONF" ] && [ -f "$XRAY_CONF" ]; then
-        if grep -q "dns.alidns.com" "$XRAY_CONF" 2>/dev/null; then
-            MODE_STATUS="${GREEN}已开启 (高强度送中模式)${NC}"
-        else
-            MODE_STATUS="${BLUE}已关闭 (默认国际模式)${NC}"
-        fi
+    # 2. 检查核心网络代理服务状态
+    CORE_PID=""
+    if pgrep -x "xray" >/dev/null 2>&1; then
+        CORE_PID=$(pgrep -x "xray" | head -n1)
+    elif pgrep -x "v2ray" >/dev/null 2>&1; then
+        CORE_PID=$(pgrep -x "v2ray" | head -n1)
     fi
 
-    echo -e " 核心服务状态: $CORE_STATUS"
-    echo -e " 保活服务状态: $PING_STATUS"
-    echo -e " 当前运行模式: $MODE_STATUS"
+    if [ -n "$CORE_PID" ]; then
+        CORE_STATUS="${GREEN}运行中 (PID: ${CORE_PID})${NC}"
+    else
+        CORE_STATUS="${RED}未运行${NC}"
+    fi
+
+    # 3. 检查当前配置文件中是否配置了 Google CN DNS
+    find_config
+    if [ -n "$CONF_PATH" ] && grep -q "dns.alidns.com" "$CONF_PATH" 2>/dev/null; then
+        MODE_STATUS="${GREEN}已开启 (阿里 DNS 送中中)${NC}"
+    else
+        MODE_STATUS="${YELLOW}未开启 (默认国际解析)${NC}"
+    fi
+
+    echo "================================================="
+    echo -e " 送中功能状态: ${MODE_STATUS}"
+    echo -e " 定时保活服务: ${PING_STATUS}"
+    echo -e " 核心代理服务: ${CORE_STATUS}"
+    echo "================================================="
 }
 
 show_menu() {
     show_banner
-    echo "================================================="
-    echo "       Google 送中模式管理脚本 (全平台版)        "
-    echo "================================================="
-    get_status
-    echo "================================================="
+    check_status
     echo -e " 1. ${GREEN}开启高强度送中模式 (多维发包 + 动态间隔)${NC}"
     echo -e " 2. ${RED}关闭送中模式${NC}"
-    echo -e " 3. ${YELLOW}一键安装/修复核心环境与依赖${NC}"
+    echo -e " 3. ${YELLOW}一键安装/修复环境与服务依赖${NC}"
     echo " 0. 退出脚本"
     echo "================================================="
     echo -e " 💡 提示：后续可在命令行直接输入 ${GREEN}sz${NC} 呼出本菜单"
@@ -429,7 +433,7 @@ show_menu() {
             disable_cn_dns
             ;;
         3)
-            install_xray
+            install_environment
             ;;
         0)
             exit 0
@@ -441,5 +445,5 @@ show_menu() {
     esac
 }
 
-install_xray
+install_environment
 show_menu
