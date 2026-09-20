@@ -18,15 +18,15 @@ PING_SCRIPT="/usr/local/bin/google_cn_ping.sh"
 SERVICE_FILE_SYSTEMD="/etc/systemd/system/google-cn-ping.service"
 SERVICE_FILE_OPENRC="/etc/init.d/google-cn-ping"
 
-# 打印开场 Banner
+# 打印开场 Banner (修復排版 & 滿版五星紅旗樣式)
 show_banner() {
     clear
     echo -e "${RED}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║ ${YELLOW}★ ${RED}  ${YELLOW}*${RED}                                                  ║${NC}"
-    echo -e "${RED}║    ${YELLOW}*${RED}                                                     ║${NC}"
-    echo -e "${RED}║    ${YELLOW}*${RED}                                                     ║${NC}"
-    echo -e "${RED}║   ${YELLOW}*${RED}                                                      ║${NC}"
-    echo -e "${RED}║                                                       ║${NC}"
+    echo -e "${RED}║ ${YELLOW}★${RED}   ${YELLOW}*${RED}   ███████████████████████████████████████████████ ║${NC}"
+    echo -e "${RED}║    ${YELLOW}*${RED}    ███████████████████████████████████████████████ ║${NC}"
+    echo -e "${RED}║    ${YELLOW}*${RED}    ███████████████████████████████████████████████ ║${NC}"
+    echo -e "${RED}║   ${YELLOW}*${RED}     ███████████████████████████████████████████████ ║${NC}"
+    echo -e "${RED}║        ███████████████████████████████████████████████ ║${NC}"
     echo -e "${RED}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "   ${BLUE}██████${NC}   ${RED}██████${NC}   ${YELLOW}██████${NC}   ${BLUE}██████${NC}   ${GREEN}██${NC}      ${RED}██████${NC}"
@@ -173,7 +173,6 @@ install_xray_alpine_binary() {
     [ -f "$TMP_DIR/geosite.dat" ] && cp -f "$TMP_DIR/geosite.dat" /usr/local/share/xray/
     rm -rf "$TMP_DIR"
 
-    # 创建 OpenRC 服务
     cat << 'EOF' > /etc/init.d/xray
 #!/sbin/openrc-run
 
@@ -219,12 +218,10 @@ install_xray() {
         fi
     fi
 
-    # Alpine Linux 专门安装逻辑
     if command -v apk >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
         if ! command -v xray >/dev/null 2>&1; then
             echo -e "${YELLOW}检测到 Alpine 环境，开启 community/testing 源并尝试安装 Xray...${NC}"
             
-            # 开启 community 和 testing 源
             ALPINE_VER=$(cat /etc/alpine-release | cut -d'.' -f1,2)
             echo "https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VER}/community" >> /etc/apk/repositories
             echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
@@ -237,7 +234,6 @@ install_xray() {
             fi
         fi
     else
-        # 非 Alpine 系统的 Linux，执行官方 install-release 脚本
         find_config
         if [ -z "$XRAY_CONF" ]; then
             echo -e "${YELLOW}未检测到 Xray，开始执行官方一键安装脚本...${NC}"
@@ -273,7 +269,7 @@ CONF_EOF
 }
 
 restart_service() {
-    local action="$1" # start or stop
+    local action="$1"
     if command -v rc-service >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
         rc-service xray $action 2>/dev/null || true
         rc-service google-cn-ping $action 2>/dev/null || true
