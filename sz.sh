@@ -345,8 +345,8 @@ with open(conf_path, 'w') as f:
 "
     restart_service "start"
 
-    echo -e "${GREEN}✅ 已成功开启『高强度送中模式』！${NC}"
-    echo -e "${GREEN}✅ 多维度模拟发包服务已启动。${NC}"
+    echo -e "${GREEN}✅ 已成功开启高强度送中模式！${NC}"
+    echo -e "${GREEN}✅ 服务已启动。${NC}"
 }
 
 disable_cn_dns() {
@@ -382,7 +382,7 @@ with open(conf_path, 'w') as f:
 "
     restart_service "stop"
 
-    echo -e "${GREEN}✅ 已成功关闭『送中模式』，恢复默认国际解析！${NC}"
+    echo -e "${GREEN}✅ 已成功关闭送中模式！${NC}"
 }
 
 show_menu() {
