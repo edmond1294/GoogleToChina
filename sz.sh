@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# Xray Google 送中模式管理脚本 (高强度 + Banner 增强版)
+# Xray Google 送中模式管理脚本 (全平台/Alpine LXC 兼容版)
 # 快捷指令: sz
 # =========================================================
 
@@ -15,22 +15,20 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 PING_SCRIPT="/usr/local/bin/google_cn_ping.sh"
-SERVICE_FILE="/etc/systemd/system/google-cn-ping.service"
+SERVICE_FILE_SYSTEMD="/etc/systemd/system/google-cn-ping.service"
+SERVICE_FILE_OPENRC="/etc/init.d/google-cn-ping"
 
-# 打印开场艺术字 (中国国旗 & Google Logo)
+# 打印开场 Banner
 show_banner() {
     clear
-    # 中国国旗 ASCII Art (五星红旗)
     echo -e "${RED}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║ ${YELLOW}★${RED}                                                       ║${NC}"
-    echo -e "${RED}║    ${YELLOW}*${RED}                                                    ║${NC}"
-    echo -e "${RED}║   ${YELLOW}*${RED}                                                     ║${NC}"
-    echo -e "${RED}║   ${YELLOW}*${RED}                                                     ║${NC}"
-    echo -e "${RED}║    ${YELLOW}*${RED}                                                    ║${NC}"
+    echo -e "${RED}║ ${YELLOW}★ ${RED}  ${YELLOW}*${RED}                                                  ║${NC}"
+    echo -e "${RED}║    ${YELLOW}*${RED}                                                     ║${NC}"
+    echo -e "${RED}║    ${YELLOW}*${RED}                                                     ║${NC}"
+    echo -e "${RED}║   ${YELLOW}*${RED}                                                      ║${NC}"
     echo -e "${RED}║                                                       ║${NC}"
     echo -e "${RED}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
-    # 彩色 Google Logo ASCII Art
     echo -e "   ${BLUE}██████${NC}   ${RED}██████${NC}   ${YELLOW}██████${NC}   ${BLUE}██████${NC}   ${GREEN}██${NC}      ${RED}██████${NC}"
     echo -e "  ${BLUE}██${NC}        ${RED}██  ██${NC}  ${YELLOW}██  ██${NC}  ${BLUE}██${NC}       ${GREEN}██${NC}      ${RED}██${NC}"
     echo -e "  ${BLUE}██   ███${NC}  ${RED}██  ██${NC}  ${YELLOW}██  ██${NC}  ${BLUE}██   ███${NC}  ${GREEN}██${NC}      ${RED}█████${NC}"
@@ -72,11 +70,10 @@ check_swap() {
 
     if [ "$MEM_FREE" -lt 300 ] && [ "$SWAP_TOTAL" -eq 0 ]; then
         echo -e "${YELLOW}检测到内存不足 (${MEM_FREE}MB) 且未配置 Swap，正在自动建立 1GB 临时 Swap...${NC}"
-        dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
-        chmod 600 /swapfile
-        mkswap /swapfile >/dev/null
-        swapon /swapfile
-        echo -e "${GREEN}1GB 临时 Swap 挂载成功！${NC}"
+        dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none 2>/dev/null || true
+        chmod 600 /swapfile 2>/dev/null || true
+        mkswap /swapfile >/dev/null 2>&1 || true
+        swapon /swapfile 2>/dev/null || true
     fi
 }
 
@@ -113,7 +110,27 @@ done
 EOF
     chmod +x "$PING_SCRIPT"
 
-    cat << EOF > "$SERVICE_FILE"
+    # 判断系统服务管理器：OpenRC (Alpine) vs Systemd (Debian/Ubuntu/CentOS)
+    if command -v rc-service >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
+        # Alpine OpenRC 模式
+        cat << 'EOF' > "$SERVICE_FILE_OPENRC"
+#!/sbin/openrc-run
+
+name="google-cn-ping"
+description="Google CN Location Keep-Alive Service"
+command="/usr/local/bin/google_cn_ping.sh"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+    need net
+}
+EOF
+        chmod +x "$SERVICE_FILE_OPENRC"
+        rc-update add google-cn-ping default >/dev/null 2>&1 || true
+    else
+        # Systemd 模式
+        cat << EOF > "$SERVICE_FILE_SYSTEMD"
 [Unit]
 Description=Google CN Location Keep-Alive Service (High Intensity)
 After=network.target
@@ -127,15 +144,15 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-
-    systemctl daemon-reload
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
 }
 
 install_xray() {
     setup_shortcut
 
     NEED_INSTALL=0
-    for pkg in curl jq python3; do
+    for pkg in curl jq python3 bash; do
         if ! command -v "$pkg" >/dev/null 2>&1; then
             NEED_INSTALL=1
             break
@@ -145,12 +162,17 @@ install_xray() {
     if [ "$NEED_INSTALL" -eq 1 ]; then
         echo -e "${YELLOW}=== 检测到缺少依赖，开始安装环境 ===${NC}"
         check_swap
-        export DEBIAN_FRONTEND=noninteractive
-        if command -v apt-get >/dev/null 2>&1; then
+        
+        # 兼容 Alpine (apk), Debian/Ubuntu (apt-get), CentOS (yum/dnf)
+        if command -v apk >/dev/null 2>&1; then
+            apk update -q
+            apk add -q curl jq python3 bash
+        elif command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq
-            apt-get install -y -qq curl jq python3
+            apt-get install -y -qq curl jq python3 bash
         elif command -v yum >/dev/null 2>&1; then
-            yum install -y -q curl jq python3
+            yum install -y -q curl jq python3 bash
         fi
     fi
 
@@ -181,6 +203,23 @@ CONF_EOF
     fi
 
     create_ping_service
+}
+
+restart_service() {
+    local action="$1" # start or stop
+    if command -v rc-service >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
+        rc-service xray $action 2>/dev/null || true
+        rc-service google-cn-ping $action 2>/dev/null || true
+    else
+        systemctl $action xray 2>/dev/null || systemctl $action v2ray 2>/dev/null || true
+        if [ "$action" = "start" ]; then
+            systemctl enable google-cn-ping.service >/dev/null 2>&1 || true
+            systemctl restart google-cn-ping.service >/dev/null 2>&1 || true
+        else
+            systemctl stop google-cn-ping.service >/dev/null 2>&1 || true
+            systemctl disable google-cn-ping.service >/dev/null 2>&1 || true
+        fi
+    fi
 }
 
 enable_cn_dns() {
@@ -227,9 +266,7 @@ data['routing']['domainStrategy'] = 'IPIfNonMatch'
 with open(conf_path, 'w') as f:
     json.dump(data, f, indent=2)
 "
-    systemctl restart xray 2>/dev/null || systemctl restart v2ray 2>/dev/null || true
-    systemctl enable google-cn-ping.service >/dev/null 2>&1 || true
-    systemctl restart google-cn-ping.service >/dev/null 2>&1 || true
+    restart_service "start"
 
     echo -e "${GREEN}✅ 已成功开启『高强度送中模式』！${NC}"
     echo -e "${GREEN}✅ 多维度模拟发包服务已启动。${NC}"
@@ -262,9 +299,7 @@ data['dns'] = {
 with open(conf_path, 'w') as f:
     json.dump(data, f, indent=2)
 "
-    systemctl restart xray 2>/dev/null || systemctl restart v2ray 2>/dev/null || true
-    systemctl stop google-cn-ping.service >/dev/null 2>&1 || true
-    systemctl disable google-cn-ping.service >/dev/null 2>&1 || true
+    restart_service "stop"
 
     echo -e "${GREEN}✅ 已成功关闭『送中模式』，恢复默认国际解析！${NC}"
 }
@@ -272,7 +307,7 @@ with open(conf_path, 'w') as f:
 show_menu() {
     show_banner
     echo "================================================="
-    echo "       Xray Google 送中模式管理脚本 (高强度)     "
+    echo "       Xray Google 送中模式管理脚本 (全平台版)   "
     echo "================================================="
     echo -e " 1. ${GREEN}开启高强度送中模式 (多维发包 + 动态间隔)${NC}"
     echo -e " 2. ${RED}关闭送中模式${NC}"
