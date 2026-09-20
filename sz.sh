@@ -1,6 +1,6 @@
 #!/bin/bash
 # =========================================================
-# Xray Google 送中模式管理脚本 (全平台/Alpine LXC 防卡死版)
+# Xray Google 送中模式管理脚本 (全平台/Alpine LXC 完美支持版)
 # 快捷指令: sz
 # =========================================================
 
@@ -64,9 +64,7 @@ setup_shortcut() {
     chmod +x /usr/local/bin/sz
 }
 
-# 预防内存不足 (自动检测 LXC/Docker 容器并安全处理)
 check_swap() {
-    # 如果检测到在 LXC / Docker 容器内，直接跳过 Swap 建立
     if [ -f /proc/1/environ ] && grep -qa -e "container=lxc" -e "container=docker" /proc/1/environ; then
         return 0
     fi
@@ -119,7 +117,6 @@ done
 EOF
     chmod +x "$PING_SCRIPT"
 
-    # 判断服务管理器：OpenRC (Alpine) vs Systemd
     if command -v rc-service >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
         cat << 'EOF' > "$SERVICE_FILE_OPENRC"
 #!/sbin/openrc-run
@@ -182,13 +179,28 @@ install_xray() {
         fi
     fi
 
-    find_config
-    if [ -z "$XRAY_CONF" ]; then
-        echo -e "${YELLOW}未检测到 Xray，开始执行官方一键安装脚本...${NC}"
-        bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)
+    # 专门针对 Alpine Linux 的 Xray 安装逻辑
+    if command -v apk >/dev/null 2>&1 || [ -f /etc/alpine-release ]; then
+        if ! command -v xray >/dev/null 2>&1; then
+            echo -e "${YELLOW}检测到 Alpine 环境，通过 apk 安装 Xray...${NC}"
+            apk add -q xray || {
+                # 如果社区源未开启则开启 community 源
+                sed -i 's/^#\(.*community\)/\1/' /etc/apk/repositories
+                apk update -q
+                apk add -q xray
+            }
+            rc-update add xray default >/dev/null 2>&1 || true
+        fi
+    else
+        # 非 Alpine 系统的 Linux，执行官方 install-release 脚本
         find_config
+        if [ -z "$XRAY_CONF" ]; then
+            echo -e "${YELLOW}未检测到 Xray，开始执行官方一键安装脚本...${NC}"
+            bash <(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)
+        fi
     fi
 
+    find_config
     if [ ! -s "$XRAY_CONF" ]; then
         mkdir -p "$(dirname "$XRAY_CONF")"
         cat << 'CONF_EOF' > "$XRAY_CONF"
