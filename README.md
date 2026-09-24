@@ -1,4 +1,4 @@
-# 预计做善事，搞个拉回日本/美国的，别骂我了行不
+# 不再维护，需要多国请使用：https://github.com/edmond1294/GoogleToThisCountry
 
 
 # 🇨🇳 Google 定位重定向与维护工具 (GoogleToChina)
